@@ -27,6 +27,8 @@ import (
 // Discoverability is the feature toggle.
 type OAuth2DiscoveryHandler struct {
 	store *lib.Config
+	// extensions may add to the authorization server metadata; nil when none.
+	extensions OAuth2Extensions
 }
 
 // NewOAuth2DiscoveryHandler creates a new discovery handler.
@@ -112,6 +114,9 @@ func (h *OAuth2DiscoveryHandler) handleASMetadata(ctx *fasthttp.RequestCtx) {
 		"scopes_supported":                      []string{"mcp"},
 		// RFC 9207: we include iss in authorization responses.
 		"authorization_response_iss_parameter_supported": true,
+	}
+	if h.extensions != nil {
+		h.extensions.ExtendASMetadata(ctx, doc)
 	}
 	data, err := sonic.Marshal(doc)
 	if err != nil {

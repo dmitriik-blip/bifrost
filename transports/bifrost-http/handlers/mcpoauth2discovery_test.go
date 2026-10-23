@@ -103,3 +103,17 @@ func TestDiscovery_ResponsesAreNotCacheable(t *testing.T) {
 		assert.Equal(t, "no-store", string(ctx.Response.Header.Peek("Cache-Control")), "document %d", i)
 	}
 }
+
+// TestDiscovery_ASMetadataExtensions checks an extension can add to the
+// authorization server metadata, and that nothing changes without one.
+func TestDiscovery_ASMetadataExtensions(t *testing.T) {
+	store := &mockOAuth2Store{}
+	h := NewOAuth2DiscoveryHandler(newTestOAuth2Config(store, configtables.MCPServerAuthModeOAuth, false))
+	h.SetExtensions(fakeGrantExtension{grantType: "urn:test:grant"})
+	ctx := &fasthttp.RequestCtx{}
+	h.handleASMetadata(ctx)
+	require.Equal(t, fasthttp.StatusOK, ctx.Response.StatusCode())
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(ctx.Response.Body(), &doc))
+	assert.Equal(t, []any{"authorization_code", "refresh_token", "urn:test:grant"}, doc["grant_types_supported"])
+}
