@@ -20,7 +20,15 @@ import {
 	MCPTLSConfig,
 	SecretVar,
 } from "@/lib/types/mcp";
-import { mcpOpenAPIConfigSchema } from "@/lib/types/schemas";
+import {
+	hasPrivateKeySettingsWithoutKey,
+	hasSendMethodWithoutSecret,
+	isHTTPSOrLoopbackURL,
+	isSecretVarSet,
+	mcpOpenAPIConfigSchema,
+	PRIVATE_KEY_REQUIRED_MESSAGE,
+	SECRET_REQUIRED_FOR_METHOD_MESSAGE,
+} from "@/lib/types/schemas";
 import { parseArrayFromText } from "@/lib/utils/array";
 import { useGetSCIMProvidersQuery } from "@enterprise/lib/store/apis/scimApi";
 import { Info } from "lucide-react";
@@ -43,7 +51,7 @@ import { OpenAPIPreviewPanel, type OpenAPIBaseUrlChoice } from "./openApiPreview
 import { OpenAPISpecSource } from "./openApiSpecSource";
 import { SectionHeader } from "./sectionHeader";
 import { TLSConfigFields } from "./tlsConfigFields";
-import { TokenExchangeFields } from "./tokenExchangeFields";
+import { TokenExchangeFields, tokenExchangeProfilePayload } from "./tokenExchangeFields";
 
 /**
  * Shared configuration body for creating an MCP client. Rendered identically by
@@ -361,6 +369,41 @@ export function validateMCPClientForm({
 				hasErrors = true;
 			}
 		}
+		if (data.token_exchange?.profile === "id_jag") {
+			const resourceClientId = data.token_exchange?.resource_client_id;
+			if (!resourceClientId?.value && !resourceClientId?.ref) {
+				setError("token_exchange.resource_client_id", { message: "Client ID at the upstream server is required for Cross App Access" });
+				hasErrors = true;
+			}
+			if (isSecretVarSet(data.token_exchange?.resource_client_secret) && isSecretVarSet(data.token_exchange?.resource_private_key)) {
+				setError("token_exchange.resource_private_key", {
+					message: "Use either a client secret or a private key at the upstream server, not both",
+				});
+				hasErrors = true;
+			}
+			if (hasPrivateKeySettingsWithoutKey(data.token_exchange)) {
+				setError("token_exchange.resource_private_key", { message: PRIVATE_KEY_REQUIRED_MESSAGE });
+				hasErrors = true;
+			}
+			if (hasSendMethodWithoutSecret(data.token_exchange)) {
+				setError("token_exchange.resource_client_secret", { message: SECRET_REQUIRED_FOR_METHOD_MESSAGE });
+				hasErrors = true;
+			}
+			const endpoint = data.token_exchange?.resource_token_endpoint?.trim();
+			if (endpoint && !isHTTPSOrLoopbackURL(endpoint)) {
+				setError("token_exchange.resource_token_endpoint", {
+					message: "Token endpoint must be an https URL (http is allowed only for localhost)",
+				});
+				hasErrors = true;
+			}
+			const assertionAudience = data.token_exchange?.resource_assertion_audience?.trim();
+			if (assertionAudience && !isHTTPSOrLoopbackURL(assertionAudience)) {
+				setError("token_exchange.resource_assertion_audience", {
+					message: "Assertion audience must be an https URL (http is allowed only for localhost)",
+				});
+				hasErrors = true;
+			}
+		}
 	}
 
 	if (authType === "per_user_headers" && effectivePerUserHeaderKeys(data, satellites).length === 0) {
@@ -507,6 +550,7 @@ export function buildMCPClientPayload(data: CreateMCPClientRequest, satellites: 
 								: undefined,
 						scopes: satellites.tokenExchangeScopesText.trim() ? parseArrayFromText(satellites.tokenExchangeScopesText) : undefined,
 						authorization_server_url: data.token_exchange?.authorization_server_url?.trim() || undefined,
+						...tokenExchangeProfilePayload(data.token_exchange),
 					}
 				: undefined,
 		// Network transports expose every tool the server reports; an openapi
@@ -1239,7 +1283,8 @@ export function MCPClientFormFields({ form, satellites, headersValidationError, 
 											<>
 												Only needed when the audience above is registered on a different authorization server than the one your SSO login
 												uses - for example, Okta&apos;s per-resource Custom Authorization Servers. Leave blank to use your SSO login&apos;s
-												issuer, which is correct for most providers.
+												issuer, which is correct for most providers. Enter an issuer, or a full token endpoint ending in /token to use it as
+												is.
 											</>
 										}
 										authServerUrlTestId="token-exchange-authorization-server-url-input"
