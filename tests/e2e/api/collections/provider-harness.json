@@ -279698,6 +279698,794 @@
           }
         }
       ]
+    },
+    {
+      "name": "267. vLLM decisions (vllm-decisions)",
+      "description": "The vllm provider serves decision models natively on POST {key url}/v1/systemone, in Typesafe's systemone shape plus vLLM's top-level images array. Questions and state go through Typesafe's converter; input_image parts are lifted into images; an image sent by reference (vLLM ignores the assets key) and an empty input (vLLM answers null with a coin flip) are local 400s. Every loaded model is native, so convert_decision_to_responses never emulates on vllm. vLLM's own errors are OpenAI-shaped and pass through with their status and message; its limits (26 options, 2-10 levels, 64 questions) are the engine's to enforce.\n\nEvery case is [PREVIEW]: it needs a vLLM server (v0.32.0 or later, CUDA 13 build) serving a decision checkpoint such as Cloudflare/clef-flash, reached through VLLM_DECISION_BASE_URL, serving it under the name clef-flash. Run with INCLUDE_PREVIEW=1.\n\nNot covered here: images on vLLM depend on the model and version (clef-flash on v0.32.0 refuses them), so the images lift is pinned by Go unit tests in core/providers/vllm and by the SGLang folder.",
+      "item": [
+        {
+          "name": "[PREVIEW] /v1/decisions - mixed kinds return typed answers and usage - vllm/clef-flash",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('vLLM answers every kind natively, with usage', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "  var body = pm.response.json(); var a = body.answers;",
+                  "  pm.expect(a, 'answers: ' + pm.response.text()).to.be.an('array').with.lengthOf(3);",
+                  "  pm.expect(a.map(function (x) { return x.type; })).to.eql(['predicate', 'choice', 'score']);",
+                  "  pm.expect(a[0].probability).to.be.within(0, 1);",
+                  "  pm.expect(['billing', 'bug', 'other'], 'the choice must be one of the submitted choices: ' + pm.response.text()).to.include(a[1].choice);",
+                  "  pm.expect(a[2].score).to.be.a('number');",
+                  "  pm.expect(body.usage.prompt_tokens, 'usage: ' + pm.response.text()).to.be.above(0);",
+                  "  var rr = (pm.response.json().extra_fields || {}).raw_request; pm.expect(rr, 'raw_request missing - x-bf-send-back-raw-request not honored: ' + pm.response.text()).to.be.an('object');",
+                  "  pm.expect(rr.state, 'text input is sent as a string state').to.be.a('string');",
+                  "  pm.expect(rr.questions, 'questions are sent as a named map').to.be.an('object').that.has.all.keys('is_frustrated', 'category', 'urgency');",
+                  "  pm.expect(rr, 'no assets key may reach the engine').to.not.have.property('assets');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-bf-send-back-raw-request",
+                "value": "true"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"vllm/clef-flash\",\n  \"input\": \"Customer: I was double charged last month and nobody answered my two emails. Refund me today or I cancel.\",\n  \"questions\": [\n    {\n      \"type\": \"predicate\",\n      \"name\": \"is_frustrated\",\n      \"instructions\": \"Is the customer frustrated?\"\n    },\n    {\n      \"type\": \"choice\",\n      \"name\": \"category\",\n      \"instructions\": \"Pick the ticket category\",\n      \"choices\": [\n        {\n          \"value\": \"billing\",\n          \"description\": \"charges, refunds, invoices\"\n        },\n        {\n          \"value\": \"bug\",\n          \"description\": \"product defects\"\n        },\n        {\n          \"value\": \"other\",\n          \"description\": \"anything else\"\n        }\n      ]\n    },\n    {\n      \"type\": \"score\",\n      \"name\": \"urgency\",\n      \"instructions\": \"Rate how urgently this ticket needs a human reply\",\n      \"levels\": [\n        {\n          \"label\": \"low\",\n          \"description\": \"can wait a week\"\n        },\n        {\n          \"label\": \"medium\",\n          \"description\": \"should be answered soon\"\n        },\n        {\n          \"label\": \"high\",\n          \"description\": \"needs a reply today\"\n        }\n      ]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/decisions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "decisions"
+              ]
+            }
+          }
+        },
+        {
+          "name": "[PREVIEW] /v1/decisions - structured input is sent as an object state - vllm/clef-flash",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('a structured input reaches vLLM as an object state', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "  var body = pm.response.json(); pm.expect(body.answers, 'answers: ' + pm.response.text()).to.be.an('array').with.lengthOf(1);",
+                  "  pm.expect(body.answers[0].probability).to.be.within(0, 1);",
+                  "  var rr = (pm.response.json().extra_fields || {}).raw_request; pm.expect(rr, 'raw_request missing - x-bf-send-back-raw-request not honored: ' + pm.response.text()).to.be.an('object');",
+                  "  pm.expect(rr.state, 'structured input is sent as an object state').to.be.an('object');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-bf-send-back-raw-request",
+                "value": "true"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"vllm/clef-flash\",\n  \"input\": {\n    \"ticket\": \"A-4021\",\n    \"text\": \"Customer: I was double charged last month and nobody answered my two emails. Refund me today or I cancel.\"\n  },\n  \"questions\": [\n    {\n      \"type\": \"predicate\",\n      \"name\": \"is_frustrated\",\n      \"instructions\": \"Is the customer frustrated?\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/decisions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "decisions"
+              ]
+            }
+          }
+        },
+        {
+          "name": "[PREVIEW] [EXPECT-400] /v1/decisions - an image sent by reference is rejected locally - vllm/clef-flash",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('an asset image is a local 400, since vLLM would ignore it and answer blind', function () {",
+                  "  pm.expect(pm.response.code, 'expected a local 400: ' + pm.response.text()).to.eql(400);",
+                  "  var body = pm.response.json();",
+                  "  pm.expect(body.is_bifrost_error, 'the 400 must come from Bifrost: ' + pm.response.text()).to.eql(true);",
+                  "  pm.expect(body.error.message).to.include('sent by reference');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-bf-send-back-raw-request",
+                "value": "true"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"vllm/clef-flash\",\n  \"input\": [\n    {\n      \"role\": \"user\",\n      \"content\": [\n        {\n          \"type\": \"input_text\",\n          \"text\": \"see r1\"\n        },\n        {\n          \"type\": \"input_image\",\n          \"id\": \"r1\",\n          \"data\": \"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVQI12P4z8AAAAMBAQCdjGo7AAAAAElFTkSuQmCC\"\n        }\n      ]\n    }\n  ],\n  \"questions\": [\n    {\n      \"type\": \"predicate\",\n      \"name\": \"is_red\",\n      \"instructions\": \"Is r1 mostly red?\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/decisions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "decisions"
+              ]
+            }
+          }
+        },
+        {
+          "name": "[PREVIEW] [EXPECT-400] /v1/decisions - an empty input is rejected locally - vllm/clef-flash",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('a null input is a local 400, not an answer without evidence', function () {",
+                  "  pm.expect(pm.response.code, 'expected a local 400: ' + pm.response.text()).to.eql(400);",
+                  "  var body = pm.response.json();",
+                  "  pm.expect(body.is_bifrost_error, 'the 400 must come from Bifrost: ' + pm.response.text()).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-bf-send-back-raw-request",
+                "value": "true"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"vllm/clef-flash\",\n  \"input\": null,\n  \"questions\": [\n    {\n      \"type\": \"predicate\",\n      \"name\": \"is_frustrated\",\n      \"instructions\": \"Is the customer frustrated?\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/decisions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "decisions"
+              ]
+            }
+          }
+        },
+        {
+          "name": "[PREVIEW] [EXPECT-400] /v1/decisions - 27 choice options return vLLM's own 400 - vllm/clef-flash",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('vLLM\\'s 26-option limit is the engine\\'s error, not Bifrost\\'s', function () {",
+                  "  pm.expect(pm.response.code, 'expected vLLM\\'s 400: ' + pm.response.text()).to.eql(400);",
+                  "  var body = pm.response.json();",
+                  "  pm.expect(body.is_bifrost_error, 'the 400 must be vLLM\\'s: ' + pm.response.text()).to.eql(false);",
+                  "  pm.expect(body.error.message).to.include('26 options');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-bf-send-back-raw-request",
+                "value": "true"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"vllm/clef-flash\",\n  \"input\": \"Customer: I was double charged last month and nobody answered my two emails. Refund me today or I cancel.\",\n  \"questions\": [\n    {\n      \"type\": \"choice\",\n      \"name\": \"many\",\n      \"instructions\": \"pick one\",\n      \"choices\": [\n        {\n          \"value\": \"opt0\"\n        },\n        {\n          \"value\": \"opt1\"\n        },\n        {\n          \"value\": \"opt2\"\n        },\n        {\n          \"value\": \"opt3\"\n        },\n        {\n          \"value\": \"opt4\"\n        },\n        {\n          \"value\": \"opt5\"\n        },\n        {\n          \"value\": \"opt6\"\n        },\n        {\n          \"value\": \"opt7\"\n        },\n        {\n          \"value\": \"opt8\"\n        },\n        {\n          \"value\": \"opt9\"\n        },\n        {\n          \"value\": \"opt10\"\n        },\n        {\n          \"value\": \"opt11\"\n        },\n        {\n          \"value\": \"opt12\"\n        },\n        {\n          \"value\": \"opt13\"\n        },\n        {\n          \"value\": \"opt14\"\n        },\n        {\n          \"value\": \"opt15\"\n        },\n        {\n          \"value\": \"opt16\"\n        },\n        {\n          \"value\": \"opt17\"\n        },\n        {\n          \"value\": \"opt18\"\n        },\n        {\n          \"value\": \"opt19\"\n        },\n        {\n          \"value\": \"opt20\"\n        },\n        {\n          \"value\": \"opt21\"\n        },\n        {\n          \"value\": \"opt22\"\n        },\n        {\n          \"value\": \"opt23\"\n        },\n        {\n          \"value\": \"opt24\"\n        },\n        {\n          \"value\": \"opt25\"\n        },\n        {\n          \"value\": \"opt26\"\n        }\n      ]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/decisions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "decisions"
+              ]
+            }
+          }
+        },
+        {
+          "name": "[PREVIEW] /typesafe/v1/systemone - native body is answered natively - vllm/clef-flash",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('a native systemone body routes to vLLM and answers in the native shape', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "  var body = pm.response.json(); var answer = (body.answers || {}).is_frustrated;",
+                  "  pm.expect(answer, 'answers: ' + pm.response.text()).to.be.an('object');",
+                  "  pm.expect(answer.type).to.eql('noul');",
+                  "  pm.expect(answer.noul).to.be.within(0, 1);",
+                  "  pm.expect(body.usage.input_tokens, 'native usage: ' + pm.response.text()).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-bf-send-back-raw-request",
+                "value": "true"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"vllm/clef-flash\",\n  \"state\": \"Customer: I was double charged last month and nobody answered my two emails. Refund me today or I cancel.\",\n  \"questions\": {\n    \"is_frustrated\": {\n      \"type\": \"noul\",\n      \"instructions\": \"Is the customer frustrated?\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/typesafe/v1/systemone",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "typesafe",
+                "v1",
+                "systemone"
+              ]
+            }
+          }
+        },
+        {
+          "name": "[PREVIEW] /openai/v1/decisions - OpenAI-shaped request reaches the engine - vllm/clef-flash",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('an OpenAI Decisions request is served by vLLM in OpenAI\\'s shape', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "  var body = pm.response.json();",
+                  "  pm.expect(body.answers, 'answers: ' + pm.response.text()).to.be.an('array').with.lengthOf(1);",
+                  "  pm.expect(body.answers[0].type).to.eql('predicate');",
+                  "  pm.expect(body.answers[0].probability).to.be.within(0, 1);",
+                  "  pm.expect(body.usage.input_tokens, 'OpenAI usage names: ' + pm.response.text()).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-bf-send-back-raw-request",
+                "value": "true"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"vllm/clef-flash\",\n  \"input\": \"Customer: I was double charged last month and nobody answered my two emails. Refund me today or I cancel.\",\n  \"questions\": [\n    {\n      \"type\": \"predicate\",\n      \"name\": \"is_frustrated\",\n      \"instructions\": \"Is the customer frustrated?\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openai/v1/decisions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "openai",
+                "v1",
+                "decisions"
+              ]
+            }
+          }
+        },
+        {
+          "name": "[PREVIEW] /v1/decisions - stays native under convert_decision_to_responses - vllm/clef-flash",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('vLLM is never emulated: the body is still a systemone state, not a tool call', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "  var body = pm.response.json(); pm.expect(body.answers, 'answers: ' + pm.response.text()).to.be.an('array').with.lengthOf(1);",
+                  "  var rr = (pm.response.json().extra_fields || {}).raw_request; pm.expect(rr, 'raw_request missing - x-bf-send-back-raw-request not honored: ' + pm.response.text()).to.be.an('object');",
+                  "  pm.expect(rr.state, 'a native systemone body must be sent, not an emit_decision tool call: ' + JSON.stringify(rr)).to.be.a('string');",
+                  "  pm.expect(rr, 'no tools may be sent').to.not.have.property('tools');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-bf-send-back-raw-request",
+                "value": "true"
+              },
+              {
+                "key": "x-bf-compat",
+                "value": "[\"convert_decision_to_responses\"]"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"vllm/clef-flash\",\n  \"input\": \"Customer: I was double charged last month and nobody answered my two emails. Refund me today or I cancel.\",\n  \"questions\": [\n    {\n      \"type\": \"predicate\",\n      \"name\": \"is_frustrated\",\n      \"instructions\": \"Is the customer frustrated?\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/decisions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "decisions"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "268. SGLang decisions (sgl-decisions)",
+      "description": "The sgl provider serves decision models natively on POST {key url or base_url}/v1/systemone, in Typesafe's systemone shape plus SGLang's top-level images array. Questions and state go through Typesafe's converter; input_image parts are lifted into images (Clef reads them); an image sent by reference (SGLang ignores the assets key) and an empty input (SGLang answers 422) are local 400s. Every loaded model is native, so convert_decision_to_responses never emulates on sgl. SGLang's 422 validation details, 400 messages and 401 string errors pass through with their status and a flattened message.\n\nEvery case is [PREVIEW]: it needs an SGLang server (lmsysorg/sglang:dev from 2026-10 or later) serving a decision checkpoint such as Cloudflare/clef-flash, reached through SGL_DECISION_BASE_URL, serving it under the name clef-flash. Run with INCLUDE_PREVIEW=1.",
+      "item": [
+        {
+          "name": "[PREVIEW] /v1/decisions - mixed kinds return typed answers and usage - sgl/clef-flash",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('SGLang answers every kind natively, with usage', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "  var body = pm.response.json(); var a = body.answers;",
+                  "  pm.expect(a, 'answers: ' + pm.response.text()).to.be.an('array').with.lengthOf(3);",
+                  "  pm.expect(a.map(function (x) { return x.type; })).to.eql(['predicate', 'choice', 'score']);",
+                  "  pm.expect(a[0].probability).to.be.within(0, 1);",
+                  "  pm.expect(['billing', 'bug', 'other'], 'the choice must be one of the submitted choices: ' + pm.response.text()).to.include(a[1].choice);",
+                  "  pm.expect(a[2].score).to.be.a('number');",
+                  "  pm.expect(body.usage.prompt_tokens, 'usage: ' + pm.response.text()).to.be.above(0);",
+                  "  var rr = (pm.response.json().extra_fields || {}).raw_request; pm.expect(rr, 'raw_request missing - x-bf-send-back-raw-request not honored: ' + pm.response.text()).to.be.an('object');",
+                  "  pm.expect(rr.state, 'text input is sent as a string state').to.be.a('string');",
+                  "  pm.expect(rr.questions, 'questions are sent as a named map').to.be.an('object').that.has.all.keys('is_frustrated', 'category', 'urgency');",
+                  "  pm.expect(rr, 'no assets key may reach the engine').to.not.have.property('assets');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-bf-send-back-raw-request",
+                "value": "true"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"sgl/clef-flash\",\n  \"input\": \"Customer: I was double charged last month and nobody answered my two emails. Refund me today or I cancel.\",\n  \"questions\": [\n    {\n      \"type\": \"predicate\",\n      \"name\": \"is_frustrated\",\n      \"instructions\": \"Is the customer frustrated?\"\n    },\n    {\n      \"type\": \"choice\",\n      \"name\": \"category\",\n      \"instructions\": \"Pick the ticket category\",\n      \"choices\": [\n        {\n          \"value\": \"billing\",\n          \"description\": \"charges, refunds, invoices\"\n        },\n        {\n          \"value\": \"bug\",\n          \"description\": \"product defects\"\n        },\n        {\n          \"value\": \"other\",\n          \"description\": \"anything else\"\n        }\n      ]\n    },\n    {\n      \"type\": \"score\",\n      \"name\": \"urgency\",\n      \"instructions\": \"Rate how urgently this ticket needs a human reply\",\n      \"levels\": [\n        {\n          \"label\": \"low\",\n          \"description\": \"can wait a week\"\n        },\n        {\n          \"label\": \"medium\",\n          \"description\": \"should be answered soon\"\n        },\n        {\n          \"label\": \"high\",\n          \"description\": \"needs a reply today\"\n        }\n      ]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/decisions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "decisions"
+              ]
+            }
+          }
+        },
+        {
+          "name": "[PREVIEW] /v1/decisions - structured input is sent as an object state - sgl/clef-flash",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('a structured input reaches SGLang as an object state', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "  var body = pm.response.json(); pm.expect(body.answers, 'answers: ' + pm.response.text()).to.be.an('array').with.lengthOf(1);",
+                  "  pm.expect(body.answers[0].probability).to.be.within(0, 1);",
+                  "  var rr = (pm.response.json().extra_fields || {}).raw_request; pm.expect(rr, 'raw_request missing - x-bf-send-back-raw-request not honored: ' + pm.response.text()).to.be.an('object');",
+                  "  pm.expect(rr.state, 'structured input is sent as an object state').to.be.an('object');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-bf-send-back-raw-request",
+                "value": "true"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"sgl/clef-flash\",\n  \"input\": {\n    \"ticket\": \"A-4021\",\n    \"text\": \"Customer: I was double charged last month and nobody answered my two emails. Refund me today or I cancel.\"\n  },\n  \"questions\": [\n    {\n      \"type\": \"predicate\",\n      \"name\": \"is_frustrated\",\n      \"instructions\": \"Is the customer frustrated?\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/decisions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "decisions"
+              ]
+            }
+          }
+        },
+        {
+          "name": "[PREVIEW] [EXPECT-400] /v1/decisions - an image sent by reference is rejected locally - sgl/clef-flash",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('an asset image is a local 400, since SGLang would ignore it and answer blind', function () {",
+                  "  pm.expect(pm.response.code, 'expected a local 400: ' + pm.response.text()).to.eql(400);",
+                  "  var body = pm.response.json();",
+                  "  pm.expect(body.is_bifrost_error, 'the 400 must come from Bifrost: ' + pm.response.text()).to.eql(true);",
+                  "  pm.expect(body.error.message).to.include('sent by reference');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-bf-send-back-raw-request",
+                "value": "true"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"sgl/clef-flash\",\n  \"input\": [\n    {\n      \"role\": \"user\",\n      \"content\": [\n        {\n          \"type\": \"input_text\",\n          \"text\": \"see r1\"\n        },\n        {\n          \"type\": \"input_image\",\n          \"id\": \"r1\",\n          \"data\": \"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVQI12P4z8AAAAMBAQCdjGo7AAAAAElFTkSuQmCC\"\n        }\n      ]\n    }\n  ],\n  \"questions\": [\n    {\n      \"type\": \"predicate\",\n      \"name\": \"is_red\",\n      \"instructions\": \"Is r1 mostly red?\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/decisions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "decisions"
+              ]
+            }
+          }
+        },
+        {
+          "name": "[PREVIEW] [EXPECT-400] /v1/decisions - an empty input is rejected locally - sgl/clef-flash",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('a null input is a local 400, not an answer without evidence', function () {",
+                  "  pm.expect(pm.response.code, 'expected a local 400: ' + pm.response.text()).to.eql(400);",
+                  "  var body = pm.response.json();",
+                  "  pm.expect(body.is_bifrost_error, 'the 400 must come from Bifrost: ' + pm.response.text()).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-bf-send-back-raw-request",
+                "value": "true"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"sgl/clef-flash\",\n  \"input\": null,\n  \"questions\": [\n    {\n      \"type\": \"predicate\",\n      \"name\": \"is_frustrated\",\n      \"instructions\": \"Is the customer frustrated?\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/decisions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "decisions"
+              ]
+            }
+          }
+        },
+        {
+          "name": "[PREVIEW] /v1/decisions - input_image parts reach SGLang as a top-level images array - sgl/clef-flash",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('an inline image is lifted into SGLang\\'s images array', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "  var body = pm.response.json(); pm.expect(body.answers, 'answers: ' + pm.response.text()).to.be.an('array').with.lengthOf(1);",
+                  "  pm.expect(body.answers[0].probability).to.be.within(0, 1);",
+                  "  var rr = (pm.response.json().extra_fields || {}).raw_request; pm.expect(rr, 'raw_request missing - x-bf-send-back-raw-request not honored: ' + pm.response.text()).to.be.an('object');",
+                  "  pm.expect(rr.images, 'input_image parts must be sent as a top-level images array: ' + JSON.stringify(Object.keys(rr))).to.be.an('array').with.lengthOf(1);",
+                  "  pm.expect(rr.images[0]).to.match(/^data:image\\/png;base64,/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-bf-send-back-raw-request",
+                "value": "true"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"sgl/clef-flash\",\n  \"input\": [\n    {\n      \"role\": \"user\",\n      \"content\": [\n        {\n          \"type\": \"input_text\",\n          \"text\": \"Look at the image.\"\n        },\n        {\n          \"type\": \"input_image\",\n          \"image_url\": \"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVQI12P4z8AAAAMBAQCdjGo7AAAAAElFTkSuQmCC\"\n        }\n      ]\n    }\n  ],\n  \"questions\": [\n    {\n      \"type\": \"predicate\",\n      \"name\": \"is_red\",\n      \"instructions\": \"Is the image mostly red?\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/decisions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "decisions"
+              ]
+            }
+          }
+        },
+        {
+          "name": "[PREVIEW] /typesafe/v1/systemone - native body is answered natively - sgl/clef-flash",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('a native systemone body routes to SGLang and answers in the native shape', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "  var body = pm.response.json(); var answer = (body.answers || {}).is_frustrated;",
+                  "  pm.expect(answer, 'answers: ' + pm.response.text()).to.be.an('object');",
+                  "  pm.expect(answer.type).to.eql('noul');",
+                  "  pm.expect(answer.noul).to.be.within(0, 1);",
+                  "  pm.expect(body.usage.input_tokens, 'native usage: ' + pm.response.text()).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-bf-send-back-raw-request",
+                "value": "true"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"sgl/clef-flash\",\n  \"state\": \"Customer: I was double charged last month and nobody answered my two emails. Refund me today or I cancel.\",\n  \"questions\": {\n    \"is_frustrated\": {\n      \"type\": \"noul\",\n      \"instructions\": \"Is the customer frustrated?\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/typesafe/v1/systemone",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "typesafe",
+                "v1",
+                "systemone"
+              ]
+            }
+          }
+        },
+        {
+          "name": "[PREVIEW] /openai/v1/decisions - OpenAI-shaped request reaches the engine - sgl/clef-flash",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('an OpenAI Decisions request is served by SGLang in OpenAI\\'s shape', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "  var body = pm.response.json();",
+                  "  pm.expect(body.answers, 'answers: ' + pm.response.text()).to.be.an('array').with.lengthOf(1);",
+                  "  pm.expect(body.answers[0].type).to.eql('predicate');",
+                  "  pm.expect(body.answers[0].probability).to.be.within(0, 1);",
+                  "  pm.expect(body.usage.input_tokens, 'OpenAI usage names: ' + pm.response.text()).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-bf-send-back-raw-request",
+                "value": "true"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"sgl/clef-flash\",\n  \"input\": \"Customer: I was double charged last month and nobody answered my two emails. Refund me today or I cancel.\",\n  \"questions\": [\n    {\n      \"type\": \"predicate\",\n      \"name\": \"is_frustrated\",\n      \"instructions\": \"Is the customer frustrated?\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openai/v1/decisions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "openai",
+                "v1",
+                "decisions"
+              ]
+            }
+          }
+        },
+        {
+          "name": "[PREVIEW] /v1/decisions - stays native under convert_decision_to_responses - sgl/clef-flash",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('SGLang is never emulated: the body is still a systemone state, not a tool call', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "  var body = pm.response.json(); pm.expect(body.answers, 'answers: ' + pm.response.text()).to.be.an('array').with.lengthOf(1);",
+                  "  var rr = (pm.response.json().extra_fields || {}).raw_request; pm.expect(rr, 'raw_request missing - x-bf-send-back-raw-request not honored: ' + pm.response.text()).to.be.an('object');",
+                  "  pm.expect(rr.state, 'a native systemone body must be sent, not an emit_decision tool call: ' + JSON.stringify(rr)).to.be.a('string');",
+                  "  pm.expect(rr, 'no tools may be sent').to.not.have.property('tools');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-bf-send-back-raw-request",
+                "value": "true"
+              },
+              {
+                "key": "x-bf-compat",
+                "value": "[\"convert_decision_to_responses\"]"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"sgl/clef-flash\",\n  \"input\": \"Customer: I was double charged last month and nobody answered my two emails. Refund me today or I cancel.\",\n  \"questions\": [\n    {\n      \"type\": \"predicate\",\n      \"name\": \"is_frustrated\",\n      \"instructions\": \"Is the customer frustrated?\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/decisions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "decisions"
+              ]
+            }
+          }
+        }
+      ]
     }
   ]
 }
