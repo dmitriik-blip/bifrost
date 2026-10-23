@@ -1,0 +1,94 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SageMakerBifrostResources",
+      "Effect": "Allow",
+      "Action": [
+        "sagemaker:CreateModel", "sagemaker:DescribeModel", "sagemaker:DeleteModel",
+        "sagemaker:CreateEndpointConfig", "sagemaker:DescribeEndpointConfig", "sagemaker:DeleteEndpointConfig",
+        "sagemaker:CreateEndpoint", "sagemaker:DescribeEndpoint", "sagemaker:UpdateEndpoint", "sagemaker:DeleteEndpoint",
+        "sagemaker:CreateInferenceComponent", "sagemaker:DescribeInferenceComponent", "sagemaker:UpdateInferenceComponent", "sagemaker:DeleteInferenceComponent",
+        "sagemaker:AddTags", "sagemaker:DeleteTags", "sagemaker:ListTags",
+        "sagemaker:InvokeEndpoint", "sagemaker:InvokeEndpointWithResponseStream"
+      ],
+      "Resource": [
+        "arn:aws:sagemaker:*:*:model/bifrost-*",
+        "arn:aws:sagemaker:*:*:endpoint-config/bifrost-*",
+        "arn:aws:sagemaker:*:*:endpoint/bifrost-*",
+        "arn:aws:sagemaker:*:*:inference-component/bifrost-*"
+      ]
+    },
+    {
+      "Sid": "SageMakerList",
+      "Effect": "Allow",
+      "Action": [
+        "sagemaker:ListEndpoints", "sagemaker:ListEndpointConfigs", "sagemaker:ListModels", "sagemaker:ListInferenceComponents",
+        "sagemaker:CallWithBearerToken"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "BifrostRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole", "iam:GetRole", "iam:DeleteRole", "iam:UpdateAssumeRolePolicy", "iam:TagRole", "iam:UntagRole", "iam:ListRoleTags",
+        "iam:PutRolePolicy", "iam:GetRolePolicy", "iam:DeleteRolePolicy", "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies", "iam:ListInstanceProfilesForRole"
+      ],
+      "Resource": "arn:aws:iam::*:role/bifrost-*"
+    },
+    {
+      "Sid": "PassBifrostRolesToSageMakerAndScheduler",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::*:role/bifrost-*",
+      "Condition": { "StringEquals": { "iam:PassedToService": ["sagemaker.amazonaws.com", "scheduler.amazonaws.com"] } }
+    },
+    {
+      "Sid": "AssumeInvokeRoleForProbe",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::*:role/bifrost-*-invoke"
+    },
+    {
+      "Sid": "ReadCallerRoleForSessionContext",
+      "Effect": "Allow",
+      "Action": "iam:GetRole",
+      "Resource": "*"
+    },
+    {
+      "Sid": "CiUserWhenCreateAccessKey",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateUser", "iam:GetUser", "iam:DeleteUser", "iam:TagUser", "iam:UntagUser", "iam:ListUserTags",
+        "iam:PutUserPolicy", "iam:GetUserPolicy", "iam:DeleteUserPolicy", "iam:ListUserPolicies",
+        "iam:ListAttachedUserPolicies", "iam:ListGroupsForUser",
+        "iam:CreateAccessKey", "iam:DeleteAccessKey", "iam:ListAccessKeys"
+      ],
+      "Resource": "arn:aws:iam::*:user/bifrost-*"
+    },
+    {
+      "Sid": "TeardownSchedules",
+      "Effect": "Allow",
+      "Action": ["scheduler:CreateSchedule", "scheduler:GetSchedule", "scheduler:UpdateSchedule", "scheduler:DeleteSchedule"],
+      "Resource": "arn:aws:scheduler:*:*:schedule/default/bifrost-*"
+    },
+    {
+      "Sid": "EndpointLogs",
+      "Effect": "Allow",
+      "Action": ["logs:DescribeLogStreams", "logs:GetLogEvents", "logs:FilterLogEvents", "logs:StartLiveTail"],
+      "Resource": "arn:aws:logs:*:*:log-group:/aws/sagemaker/Endpoints/bifrost-*"
+    },
+    {
+      "Sid": "QuotasAndLogGroups",
+      "Effect": "Allow",
+      "Action": [
+        "servicequotas:ListServiceQuotas", "servicequotas:GetServiceQuota",
+        "servicequotas:RequestServiceQuotaIncrease", "servicequotas:ListRequestedServiceQuotaChangeHistory",
+        "logs:DescribeLogGroups"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
