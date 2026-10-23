@@ -911,7 +911,7 @@ Tool definitions are restructured:
 
 - `function.name` → `name` (preserved)
 - `function.parameters` → `inputSchema` (Schema format)
-- `function.strict` → Dropped (not supported by Bedrock)
+- `function.strict` → `toolSpec.strict` for Claude models ([strict tool use](https://docs.aws.amazon.com/bedrock/latest/userguide/structured-output.html)); dropped for other model families
 
 ### Tool Choice Mapping
 
